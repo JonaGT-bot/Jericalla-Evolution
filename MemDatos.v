@@ -5,29 +5,28 @@ module MemoriaDatos (
     input wire [31:0] DataIn,
     input wire W,
     input wire R,
-    input wire clk,
     output reg [31:0] DataOut
 );
-    // Aumentamos tamaño, por ejemplo 32
+
     reg [31:0] memory [0:127];
     
-    always @(posedge clk) begin
-        if (W) begin
-            memory[Address[31:0]] <= DataIn; // Usamos los 32 bits de Address
-        end
-    end
+    initial
+    begin 
+	#100
+	$readmemb("datosmemoria", memory); 
+    end	
     
     always @(*) begin
-        if (R)
-            DataOut = memory[Address[31:0]];
-        else
-            DataOut = 32'b0;
+    if (W && !R) begin
+        memory[Address] = DataIn; // Escribimos
     end
-    integer i;
-    initial begin
-        for (i=0; i<32; i=i+1)
-            memory[i] = 0;
+    if (R && !W) begin
+        DataOut = memory[Address]; // Leemos
     end
 
-endmodule
-
+    
+	else begin
+		DataOut = 32'd0;
+	end
+    end
+    endmodule

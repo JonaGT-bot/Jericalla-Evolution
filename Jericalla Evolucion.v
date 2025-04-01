@@ -1,164 +1,155 @@
 //Jonathan Garcia Tovar
 //Laura Vanessa Quintero Arreola
 module JericallaEvo(
-    input wire [16:0] Instruccion,
-    input wire CLK,
-    output reg [31:0] Salida
+    input [16:0] INST,
+    input CLK,
+    output [31:0] DataOut
 );
-    // Decodificación de la instrucción
-    wire [1:0] OpCode = Instruccion[16:15];
-    wire [4:0] WA = Instruccion[14:10];
-    wire [4:0] RA1 = Instruccion[9:5];
-    wire [4:0] RA2 = Instruccion[4:0];
-    
-    // Señales de Control
-    wire WE, Demux, W, R;
-    wire [1:0] AluOp;
-    
-    // Salidas BancoRegistros
-    wire [31:0] DR1, DR2;
-    
-    // Salidas Buffer1
-    wire [31:0] Q1, Q2;
-    wire We_buf1;
-    wire [1:0] AluOp_buf1;
-    wire Demux_buf1;
-    
-    // Salidas ALU
-    wire [31:0] ALU_out;
-    
-    // Salidas Buffer2
-    wire [31:0] B1_out, B2_out, B3_out;
-    wire W_buf2, R_buf2;
-    
-    // Salida Memoria
-    wire [31:0] DataOut;
-    
-    Control control (
-        .OpCode(OpCode),
-        .WE(WE),
-        .AluOp(AluOp),
-        .Demux(Demux),
-        .W(W),
-        .R(R)
-    );
-    
-    BancoRegistros registros (
-        .RA1(RA1),
-        .RA2(RA2),
-        .WA(WA),
-        .WD(B2_out),  // Conectamos la salida del Buffer2
-        .WE(WE),
-        .clk(CLK),
-        .DR1(DR1),
-        .DR2(DR2)
-    );
-    
-    Buffer1 buffer1 (
-        .DR1(DR1),
-        .DR2(DR2),
-        .clk(CLK),
-        .EN(1'b1),         // Para simplicidad, habilitado siempre
-        .We_in(WE),
-        .AluOp_in(AluOp),
-        .Demux_in(Demux),
-        .Q1(Q1),
-        .Q2(Q2),
-        .We_out(We_buf1),
-        .AluOp_out(AluOp_buf1),
-        .Demux_out(Demux_buf1)
-    );
-    
+
+    // Buffers para direcciones
+    wire [4:0] WaBuf1, WaBuf2;
+    // Banco de Registros
+    wire [31:0] ReadData1, ReadData2;
+    wire [31:0] ReadData1Buf1, ReadData2Buf1;
+    wire [31:0] ReadData1Demux, ReadData2Demux;
+    wire [31:0] ReadData1Buf2, ReadData2Buf2;
+    // Control
+    wire WriteEnable, DemuxSelect, MemWrite, MemRead;
+    wire [1:0] AluMode;
+    wire [1:0] AluModeBuf1;
+    wire WriteEnableBuf1, DemuxSelectBuf1, MemWriteBuf1, MemReadBuf1;
+    wire WriteEnableBuf2, MemWriteBuf2, MemReadBuf2;
+    // Buffer intermedio
+    wire [76:0] BufferComb1;
+    wire [76:0] BufferOut1;
+    wire [103:0] BufferComb2;
+    wire [103:0] BufferOut2;
+    // Demultiplexores
+    wire [31:0] DemuxOut1, DemuxOut2;
     // ALU
-    Alu alu (
-        .A(Q1),
-        .B(Q2),
-        .OP(AluOp_buf1),
-        .Res(ALU_out)
+    wire [31:0] AluResult;
+    wire [31:0] AluResultBuf2;
+
+    // Instancia del Control
+    Control ControlUnit (
+        .OpCode(INST[16:15]),
+        .WE(WriteEnable),
+        .AluOp(AluMode),
+        .Demux(DemuxSelect),
+        .W(MemWrite),
+        .R(MemRead)
     );
-    
-    // MUX explícito en lugar de tri-state
-    wire [31:0] muxData1 = (Demux_buf1) ? Q1 : 32'b0;
-    wire [31:0] muxData2 = ALU_out;
-    wire [31:0] muxData3 = Q2;
-    
-    Buffer2 buffer2 (
-        .DataIn1(muxData1),
-        .DataIn2(muxData2),
-        .DataIn3(muxData3),
+
+    // Instancia al Banco de Registros
+    BancoRegistros RegisterBank (
+        .RA1(INST[9:5]),
+        .RA2(INST[4:0]),
+        .WA(INST[14:10]),
+        .WD(AluResultBuf2),
+        .WE(WriteEnableBuf2),
         .clk(CLK),
-        .EN(1'b1),   // habilitado siempre
-        .W_in(W),
-        .R_in(R),
-        .BOut1(B1_out),
-        .BOut2(B2_out),
-        .BOut3(B3_out),
-        .W_out(W_buf2),
-        .R_out(R_buf2)
+        .DR1(ReadData1),
+        .DR2(ReadData2)
     );
-    
-    MemoriaDatos memDatos (
-        .Address(B1_out),
-        .DataIn(B3_out),
-        .W(W_buf2),
-        .R(R_buf2),
-        .clk(CLK),
+
+    // Instancias de los Demux
+    Demux Demux1 (
+        .In(ReadData1Buf1),
+        .op(DemuxSelectBuf1),
+        .OutAlu(DemuxOut1),
+        .OutBuffer(ReadData1Demux)
+    );
+
+    Demux Demux2 (
+        .In(ReadData2Buf1),
+        .op(DemuxSelectBuf1),
+        .OutAlu(DemuxOut2),
+        .OutBuffer(ReadData2Demux)
+    );
+
+    // Instancia de la ALU
+    Alu ALU(
+        .A(DemuxOut1),
+        .B(DemuxOut2),
+        .OP(AluModeBuf1),
+        .Res(AluResult)
+    );
+
+    // Instancia de la Memoria de Datos
+    MemoriaDatos DataMemory (
+        .Address(ReadData1Buf2),
+        .DataIn(ReadData2Buf2),
+        .W(MemWriteBuf2),
+        .R(MemReadBuf2),
         .DataOut(DataOut)
     );
-    
-    // Registro de salida
-    always @(posedge CLK) begin
-        Salida <= DataOut;
-    end
+
+    // Se pasan los datos atraves del buffer 1
+    assign BufferComb1 = {INST[14:10], WriteEnable, DemuxSelect, MemWrite, MemRead, AluMode, ReadData1, ReadData2};
+    BF#(77) Buffer1 (
+        .in(BufferComb1),
+        .clk(CLK),
+        .out(BufferOut1)
+    );
+
+    assign WaBuf1  = BufferOut1[76:72];
+    assign WriteEnableBuf1 = BufferOut1[71];
+    assign DemuxSelectBuf1 = BufferOut1[70];
+    assign MemWriteBuf1 = BufferOut1[69];
+    assign MemReadBuf1 = BufferOut1[68];
+    assign AluModeBuf1 = BufferOut1[67:66];
+    assign ReadData1Buf1 = BufferOut1[65:34];
+    assign ReadData2Buf1 = BufferOut1[33:2];
+
+    // Ahora pasamos los datos por el buffer 2
+    assign BufferComb2 = {WaBuf1, WriteEnableBuf1, MemWriteBuf1, MemReadBuf1, AluResult, ReadData1Demux, ReadData2Demux};
+    BF#(104) Buffer2 (
+        .in(BufferComb2),
+        .clk(CLK),
+        .out(BufferOut2)
+    );
+
+    assign WaBuf2 = BufferOut2[103:99];
+    assign WriteEnableBuf2 = BufferOut2[98];
+    assign MemWriteBuf2 = BufferOut2[97];
+    assign MemReadBuf2 = BufferOut2[96];
+    assign AluResultBuf2 = BufferOut2[95:64];
+    assign ReadData1Buf2 = BufferOut2[63:32];
+    assign ReadData2Buf2 = BufferOut2[31:0];
+
 endmodule
 
-// Testbench
-module Testbench_JericallaEvo;
-    reg [16:0] Instruccion;
-    reg CLK;
-    wire [31:0] Salida;
-    
-    // Instancia del TOP
-    JericallaEvo uut (
-        .Instruccion(Instruccion),
-        .CLK(CLK),
-        .Salida(Salida)
-    );
-    
-    // Generación de reloj
-    initial CLK = 0;
-    always #200 CLK = ~CLK;
-    
-    initial begin
 
-        // Prueba Suma (OpCode = 00)
-        // Instruccion[16:15] = 00
-        // WA=4, RA1=8, RA2=5
-        Instruccion = 17'b00_00100_00000_00001; 
-        #1000;
-        
-        // Resta (OpCode = 01)
-        Instruccion = 17'b01_00101_00001_00010; 
-        #1000;
-        
-        // SLT (OpCode = 10)
-        Instruccion = 17'b10_00110_00010_00011; 
-        #1000;
-        
-        // StoreWord (OpCode = 11) Caso 1
-        Instruccion = 17'b11_00000_00111_00100; 
-        #1000;
-        
-        // StoreWord (OpCode = 11) Caso 2
-        Instruccion = 17'b11_00000_01000_00101; 
-        #1000;
+module JericallaTB();
+reg [16:0] INST;
+reg CLK;
+wire [31:0] DataOut;
 
-        // StoreWord (OpCode = 11) Caso 3
-        Instruccion = 17'b11_00000_01001_00110; 
-        #1000;
+parameter instrucciones = 6;
 
-        // Finalizar
-        #1000;
-        $finish;
+reg [16:0] memoryInst [0:instrucciones-1];
+
+JericallaEvo testbench (.INST(INST),.CLK(CLK),. DataOut(DataOut));
+
+ integer i;
+ 
+//Inicializa el reloj
+initial begin
+    CLK = 0;
+    forever #100 CLK = ~CLK;
+end
+
+initial begin	
+    #1000;
+    // Cargamos el archivo que nos da python
+    $readmemb("pythonDB", memoryInst);
+	
+    for (i = 0; i < instrucciones; i = i + 1) begin
+      INST = memoryInst[i];
+      #1000;
     end
+    
+    $stop;
+  end
+  
 endmodule

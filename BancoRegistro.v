@@ -7,8 +7,8 @@ module BancoRegistros (
     input wire [31:0] WD,    
     input wire WE,           
     input wire clk,
-    output wire [31:0] DR1,  
-    output wire [31:0] DR2   
+    output reg [31:0] DR1,  
+    output reg [31:0] DR2   
 );
     
     reg [31:0] registro [0:31];
@@ -17,11 +17,13 @@ module BancoRegistros (
     initial begin
         $readmemb("datos", registro); // Leer valores en binario
     end
-
-    assign DR1 = registro[RA1];
-    assign DR2 = registro[RA2];
-    
-    always @(posedge clk) begin
+//Leemos posiciones de memoria
+    always @(*) begin
+    	DR1 = registro[RA1];
+	DR2 = registro[RA2];
+    end
+//Escribimos si WE
+    always @(*) begin
         if (WE)
             registro[WA] <= WD;
     end
